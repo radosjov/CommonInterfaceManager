@@ -1,0 +1,79 @@
+GOAL
+To propose a scalable and quick solution for a sub problem involved in making of the Analytics 2.0 block.
+
+PROBLEM
+This document is addressing the part of the specification stating “Each API will collect any required data from the user for that particular event effectively providing a single API for the application to use. Rest of the system is responsible from adapting this input set to the final payload that will either be sent to the vendor SDK or to vendor's servers.”
+
+The specific problem being addressed is the passing an arbitrary number of parameters from the client to the Analytics Manager. Basically packing classes with potentially different interfaces under the same roof and showing that to the end user.
+
+In other words, the issues are:
+1. Different analytics vendors may have different string names for the same parameter (eg. "username" and "UserName", "contentid" and "cpId", etc).
+2. Different analytics vendors may need different parameters for the same functionality.
+
+PROPOSED SOLUTION
+The manager class will serve as a client for the different Analytics vendor classes. It will handle the differences between the separate vendors. It will expose a unified API to the client, letting the client choose which features will be utilized, and then translating the unified API calls to vendor specific API calls. The unified API being described is a JSON object, but it can be any other descriptive data structure.
+
+I propose a solution which, in addition to providing a unified interface, does not need any immediate change to the existing vendor classes. We currently have AVS, Adobe, Krux, Omiture libraries already working with tested and proven code. They can be left as they are, and the manager will act as a client for them all, and also provide a single API for them for the application to use. Leaving the vendor classes as they are, and creating an environment which completely hides all of the insides how the different vendors are implemented and handled, allows this new block to be given to clients in short time. Restructuring the individual vendor classes can be executed at a later date on a need-to basis, and without disturbing the clients.
+
+BENEFITS
+Vendor classes do not know the existence of the manager, and don't need to adapt themselves / change themselves. Whatever interface they already have the manager will use. This will facilitate existing code reuse and save development and testing time.
+Using JSON as a unified API interface retains the expressive freedoms of individual vendor classes.
+
+EXAMPLE CODE
+https://github.com/radosjov/CommonInterfaceManager.git
+
+DETAILS IN PSEUDOCODE
+class XVendor {
+  void foo(int);
+}
+class YVendor {
+  void foo(int, int);
+}
+
+class Manager {
+  void foo(json);
+  XVendor x; YVendor y;
+}
+Manager::foo(json) {
+  if (shouldX) x->foo(json[a]);
+  if (shouldY) y->foo(json[a], json[b]);
+}
+
+DETAILS IN ENGLISH
+A possibility that two vendors have different interfaces for the same functionality: a vendor function X:foo(int a) and a vendor function Y:foo(int a, int b).
+
+a and b could be passed from the app throughout its life, transmitting maybe an app state or another run-time variable. For the two vendor functions X::foo(int) and Y::foo(int, int), we could have a manager function Manager::foo(int a, int b) containing a superset of all vendor parameters as its own argument set. As we can imagine this can get messy. Also, if I only use the vendor X, I am forced to be setting the b variable as well, even though it will never be considered. We can also spend development time getting the value for the variable b, to pass it to foo, to no effect.
+
+To handle varying number of parameters and parameter types, the client App can pass parameters to Manager::foo as a JSON-like string (or any other generic data structure. If we don't need nesting std::map can be used instead).
+Example json string that would be just for X::foo
+{
+    “a”:43
+}
+Example json string that would be just for Y::foo
+{
+    “a”:43,
+    “b”:”0b101011”
+}
+Then the manager interface will be Manager::foo(string sJson). The manager will parse the input string, and extract parameters that the individual vendor needs. If we are not using the vendor Y the client will never need to know about the existence of b. This way if we have n vendors we can mix and match them and selectively create the json string.
+
+If the user needs Y and does not supply b an error will be thrown. A check could be performed at the point the manager is parsing the json for b and not finding it. The names for the json parameters could be the most commonly used names for those parameters across all vendors.
+
+We will document that if the user wants to use the services of the vendor Y he must supply us “b”, because the vendor requires it.
+
+For the creation of the json string/object (or the std::map) utility/helper functions will be provided if needed.
+
+Using this approach we don't need to restrict the analytics vendor classes inheriting a common interface along with its sister classes. We can have X:foo(int a) and Y:foo(int a, int b), without inheriting a common interface class for the function foo, thereby allowing them to be as expressive as they need to be.
+
+The manager will call
+if (shouldX) m_pX->foo( a )
+if (shouldY) m_pY->foo( a, b )
+
+where a and b are extracted from the passed json string/object, shouldXY are from the configuration file on which features the user wants the Analytics Manager to use.
+
+ERROR FLOWS
+parameter needed by Z + parameter properly supplied in json = OK
+parameter needed by Z + parameter missing or nor parsable in json = KO
+some parameter not requested explicitly by Z = OK. it will be ignored since the manager will call well defined vendor service class functions.
+
+CONSEQUENCES
+A consequence of the proposed architecture, that the manager serves also as a client for different vendors, is that if a new vendor class is added all of the functions in the manager class need to be updated to use the new class (eg. a Login function now needs to also propagate that request to the new vendor class).
